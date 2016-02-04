@@ -94,8 +94,15 @@ func (i *Image) GoString() string {
 	return fmt.Sprintf("Image(%s-%s): %s", i.Id, i.Type, i.URL)
 }
 
+type Variants struct {
+	Price *Price `json:"price"`
+}
+
+type Price struct {
+	Str string `json:"decimalValue"`
+}
+
 type AdditionalInfo map[string]interface{}
-type Variants map[string]interface{}
 
 // UnmarshalJSON will handle strings and floats as strings
 func (pt *ProductType) UnmarshalJSON(b []byte) error {
@@ -137,4 +144,21 @@ func New(in *os.File) (*SquareSpace, error) {
 	}
 
 	return ss, nil
+}
+
+func (sqp *SquareSpaceProduct) GetMappings(shFields []string) (map[string]string, error) {
+	mapping := make(map[string]string, len(shFields))
+	var err error
+
+	mapping["Handle"] = sqp.URL.ProductPath
+	mapping["Title"] = sqp.Name
+	mapping["Body (HTML)"] = sqp.Description
+	if len(sqp.Images) > 0 {
+		mapping["Image Src"] = sqp.Images[0].URL
+	}
+	if len(sqp.Variants) > 0 {
+		mapping["Variant Price"] = sqp.Variants[0].Price.Str
+	}
+
+	return mapping, err
 }

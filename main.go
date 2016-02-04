@@ -1,11 +1,11 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/CodeMonk/GoSquareToShopify/shopify"
 	"github.com/CodeMonk/GoSquaretoShopify/squarespace"
 )
 
@@ -54,9 +54,31 @@ func convertFiles(in, out *os.File) error {
 		return fmt.Errorf("Unable to read input file!: %v", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "DEBUG:  Squarespace: %#v", square)
+	//fmt.Fprintf(os.Stderr, "DEBUG:  Squarespace: %#v", square)
+	shop := shopify.New(out)
+	err = shop.WriteHeader()
+	if err != nil {
+		return fmt.Errorf("Unable to write CSV headers!: %v", err)
+	}
+	defer shop.CloseAll()
 
-	return errors.New("Not implemented yet!")
+	for _, item := range square.Results {
+		mappings, err := item.GetMappings(shopify.ShopifyFields)
+		if err != nil {
+			return fmt.Errorf("GetMappings returned %v!", err)
+		}
+		row, err := shop.GetRow(mappings)
+		if err != nil {
+			return fmt.Errorf("GetRow returned %v!", err)
+		}
+		err = shop.WriteRow(row)
+		if err != nil {
+			return fmt.Errorf("Unable to write CSV headers!: %v", err)
+		}
+		//fmt.Fprintf(os.Stderr, "%#v\n", row)
+	}
+
+	return nil
 }
 
 func main() {

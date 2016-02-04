@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -154,11 +155,18 @@ func (sqp *SquareSpaceProduct) GetMappings(shFields []string) (map[string]string
 	mapping["Title"] = sqp.Name
 	mapping["Body (HTML)"] = sqp.Description
 	if len(sqp.Images) > 0 {
-		mapping["Image Src"] = sqp.Images[0].URL
+		images := make([]string, len(sqp.Images))
+		for i, image := range sqp.Images {
+			images[i] = image.URL
+		}
+		mapping["Image Src"] = strings.Join(images, "|")
 	}
 	if len(sqp.Variants) > 0 {
 		mapping["Variant Price"] = sqp.Variants[0].Price.Str
 	}
+	mapping["Variant Inventory Policy"] = "deny"
+	mapping["Variant Inventory Qty"] = "1"
+	mapping["Variant Fulfillment Service"] = "manual"
 
 	return mapping, err
 }

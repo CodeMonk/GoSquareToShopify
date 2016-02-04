@@ -4,9 +4,12 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"strings"
 )
 
 var (
+	HEADER_FIELD  = 0
+	IMAGE_FIELD   = 24
 	ShopifyFields = []string{
 		"Handle",
 		"Title",
@@ -56,29 +59,13 @@ var (
 )
 
 type Shopify struct {
-	Fields map[string]string
 	Writer *csv.Writer
 }
 
 func New(out *os.File) *Shopify {
-	fields := make(map[string]string, len(ShopifyFields))
-	for _, field := range ShopifyFields {
-		fields[field] = ""
-	}
-
 	return &Shopify{
-		Fields: fields,
 		Writer: csv.NewWriter(out),
 	}
-}
-
-func (s *Shopify) Set(key string, value string) error {
-	if _, ok := s.Fields[key]; ok {
-		s.Fields[key] = value
-		return nil
-	}
-
-	return fmt.Errorf("Unable to add \"%s\": key not in fields!\n", key)
 }
 
 func (s *Shopify) GetRow(mappings map[string]string) ([]string, error) {
@@ -102,17 +89,49 @@ func (s *Shopify) WriteCSV(rows [][]string) error {
 	}
 
 	// Write All rows
-	return s.Writer.WriteAll(rows)
+	for _, row := range rows {
+		err = s.WriteRow(row)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Shopify) WriteHeader() error {
 	// Write header
 	return s.Writer.Write(ShopifyFields)
 }
-func (s *Shopify) WriteRow(row []string) error {
-	// Write header
-	return s.Writer.Write(row)
+func (s *Shopify) WriteRow(row []string) (err error) {
+	// Write row -- be sure and split images back out.
+	images := strings.Split(row[IMAGE_FIELD], "|")
+
+	first_row := true
+	image_row := make([]string, len(ShopifyFields))
+	image_row[HEADER_FIELD] = row[HEADER_FIELD]
+
+	for _, image := range images {
+		if first_row {
+			// Write out row with all the data
+			first_row = false
+			row[IMAGE_FIELD] = image
+			err = s.Writer.Write(row)
+			if err != nil {
+				return
+			}
+		} else {
+			// for subsequent rows, write a blank row except for images and header
+			image_row[IMAGE_FIELD] = image
+			err = s.Writer.Write(image_row)
+			if err != nil {
+				return
+			}
+		}
+	}
+	return
 }
+
 func (s *Shopify) CloseAll() {
 	s.Writer.Flush()
 }

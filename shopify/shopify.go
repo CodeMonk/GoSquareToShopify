@@ -2,13 +2,16 @@ package shopify
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/CodeMonk/GoSquaretoShopify/squarespace"
 )
 
 var (
-	HEADER_FIELD  = 0
+	HANDLE_FIELD  = 0
 	IMAGE_FIELD   = 24
 	ShopifyFields = []string{
 		"Handle",
@@ -58,6 +61,40 @@ var (
 	}
 )
 
+func fieldToIndex(k string) (int, error) {
+	for i, f := range ShopifyFields {
+		if k == f {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("Field %s not found!\n", k)
+}
+
+func indexToField(i int) (string, error) {
+	if i < 0 || i > len(ShopifyFields)-1 {
+		return "", fmt.Errorf("Field must be between [0 and %d]",
+			len(ShopifyFields)-1)
+	}
+	return ShopifyFields[i], nil
+}
+
+// Return an empty CSV row
+func makeRow() []string {
+	return make([]string, len(ShopifyFields))
+}
+
+// setField will set the named field in the csv rows
+func setField(row []string, k, v string) error {
+	i, err := fieldToIndex(k)
+	if err != nil {
+		return err
+	}
+
+	// And, set it
+	row[i] = v
+	return nil
+}
+
 type Shopify struct {
 	Writer *csv.Writer
 }
@@ -68,20 +105,133 @@ func New(out *os.File) *Shopify {
 	}
 }
 
-func (s *Shopify) GetRow(mappings map[string]string) ([]string, error) {
-	result := make([]string, len(ShopifyFields))
+// Write out our header field
+func (s *Shopify) WriteHeader() error {
+	// Write header
+	return s.Writer.Write(ShopifyFields)
+}
 
-	for index, field := range ShopifyFields {
-		if value, ok := mappings[field]; ok {
-			result[index] = value
-		} else {
-			result[index] = ""
+// WriteRow writes the supplied row to the csv
+func (s *Shopify) WriteRow(row []string) error {
+	// Write out row with all the data
+	return s.Writer.Write(row)
+}
+
+func (s *Shopify) CloseAll() {
+	s.Writer.Flush()
+}
+
+// WriteSquareSpaceProduct will write a single product to the csv.  Note, this could cause
+// multiple records to be added.
+func (s *Shopify) WriteSquareSpaceProduct(item *squarespace.SquareSpaceProduct) (err error) {
+
+	// So, let's do our first record, with our first image, and our first variant
+	row := makeRow()
+
+	err = setField(row, "Handle", item.URL.ProductPath)
+	if err != nil {
+		return
+	}
+	err = setField(row, "Title", item.Name)
+	if err != nil {
+		return
+	}
+	err = setField(row, "Body (HTML)", item.Description)
+	if err != nil {
+		return
+	}
+
+	// Get our categories and tags, and add them all as tags
+	err = setField(row, "Tags", strings.Join(append(item.Categories, item.Tags...), ","))
+	if err != nil {
+		return
+	}
+
+	// Now, for each image/variant, add the fields
+	extraRecords := len(item.Images)
+	if len(item.Variants) > extraRecords {
+		extraRecords = len(item.Variants)
+	}
+
+	for i := 0; i < extraRecords; i++ {
+		if i != 0 {
+			// Our first record, we write the whole thing.  For subsequent records, only
+			// use the handle
+			row = makeRow()
+			err = setField(row, "Handle", item.URL.ProductPath)
+			if err != nil {
+				return
+			}
+		}
+
+		// Now, include image (i) and variant (i), if they exist
+		if i < len(item.Images)-1 {
+			err = setField(row, "Image Src", item.Images[i].URL)
+			if err != nil {
+				return
+			}
+		}
+
+		if i < len(item.Variants)-1 {
+			// First, the hard coded ones
+			err = setField(row, "Variant Inventory Tracker", "shopify")
+			if err != nil {
+				return
+			}
+
+			err = setField(row, "Variant Inventory Policy", "deny")
+			if err != nil {
+				return
+			}
+			err = setField(row, "Variant Fulfillment Service", "manual")
+			if err != nil {
+				return
+			}
+			// Now the important ones
+			err = setField(row, "Variant Price", item.Variants[i].Price.Str)
+			if err != nil {
+				return
+			}
+			err = setField(row, "Variant SKU", item.Variants[i].SKU)
+			if err != nil {
+				return
+			}
+			err = setField(row, "Variant Inventory Qty", fmt.Sprintf("%v",
+				item.Variants[i].Stock.Quantity))
+			if err != nil {
+				return
+			}
+			// Finally, add the reason for our Variant
+			index := 0
+			for k, v := range item.Variants[i].Attributes {
+				index++
+				if index > 3 {
+					return errors.New("Error received too many variants - can only handle three options")
+				}
+				key_field := fmt.Sprintf("Option%d Name", index)
+				value_field := fmt.Sprintf("Option%d Value", index)
+				err = setField(row, key_field, k)
+				if err != nil {
+					return
+				}
+				err = setField(row, value_field, v)
+				if err != nil {
+					return
+				}
+			}
+		}
+
+		// And, write our row
+		err = s.WriteRow(row)
+		if err != nil {
+			return
 		}
 	}
 
-	return result, nil
+	return
 }
 
+// WriteCSV writes the provided rows out to our csv file
 func (s *Shopify) WriteCSV(rows [][]string) error {
 	err := s.WriteHeader()
 	if err != nil {
@@ -97,41 +247,4 @@ func (s *Shopify) WriteCSV(rows [][]string) error {
 	}
 
 	return nil
-}
-
-func (s *Shopify) WriteHeader() error {
-	// Write header
-	return s.Writer.Write(ShopifyFields)
-}
-func (s *Shopify) WriteRow(row []string) (err error) {
-	// Write row -- be sure and split images back out.
-	images := strings.Split(row[IMAGE_FIELD], "|")
-
-	first_row := true
-	image_row := make([]string, len(ShopifyFields))
-	image_row[HEADER_FIELD] = row[HEADER_FIELD]
-
-	for _, image := range images {
-		if first_row {
-			// Write out row with all the data
-			first_row = false
-			row[IMAGE_FIELD] = image
-			err = s.Writer.Write(row)
-			if err != nil {
-				return
-			}
-		} else {
-			// for subsequent rows, write a blank row except for images and header
-			image_row[IMAGE_FIELD] = image
-			err = s.Writer.Write(image_row)
-			if err != nil {
-				return
-			}
-		}
-	}
-	return
-}
-
-func (s *Shopify) CloseAll() {
-	s.Writer.Flush()
 }

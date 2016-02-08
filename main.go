@@ -47,6 +47,8 @@ func getFileHandles() (in, out *os.File, err error) {
 	return
 }
 
+// convertFiles is our main worker function.  It parses in the squarespace data, then writes out
+// the shopify data.
 func convertFiles(in, out *os.File) error {
 
 	square, err := squarespace.New(in)
@@ -54,28 +56,22 @@ func convertFiles(in, out *os.File) error {
 		return fmt.Errorf("Unable to read input file!: %v", err)
 	}
 
-	//fmt.Fprintf(os.Stderr, "DEBUG:  Squarespace: %#v", square)
+	// Create our shopify writer
 	shop := shopify.New(out)
+
+	// Write out csv headers
 	err = shop.WriteHeader()
 	if err != nil {
 		return fmt.Errorf("Unable to write CSV headers!: %v", err)
 	}
 	defer shop.CloseAll()
 
+	// And, write all of our records.
 	for _, item := range square.Results {
-		mappings, err := item.GetMappings(shopify.ShopifyFields)
+		err = shop.WriteSquareSpaceProduct(item)
 		if err != nil {
-			return fmt.Errorf("GetMappings returned %v!", err)
+			return err
 		}
-		row, err := shop.GetRow(mappings)
-		if err != nil {
-			return fmt.Errorf("GetRow returned %v!", err)
-		}
-		err = shop.WriteRow(row)
-		if err != nil {
-			return fmt.Errorf("Unable to write CSV headers!: %v", err)
-		}
-		//fmt.Fprintf(os.Stderr, "%#v\n", row)
 	}
 
 	return nil

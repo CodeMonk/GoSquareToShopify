@@ -165,14 +165,14 @@ func (s *Shopify) WriteSquareSpaceProduct(item *squarespace.SquareSpaceProduct) 
 		}
 
 		// Now, include image (i) and variant (i), if they exist
-		if i < len(item.Images)-1 {
+		if i < len(item.Images) {
 			err = setField(row, "Image Src", item.Images[i].URL)
 			if err != nil {
 				return
 			}
 		}
 
-		if i < len(item.Variants)-1 {
+		if i < len(item.Variants) {
 			// First, the hard coded ones
 			err = setField(row, "Variant Inventory Tracker", "shopify")
 			if err != nil {
